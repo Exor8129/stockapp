@@ -190,7 +190,7 @@ export default function TeamPage() {
         >
           <Badge.Ribbon
             text={teamName}
-            color={user === "teamblue" ? "Blue" : "Red"}
+            color={teamName === "teamblue" ? "Blue" : "Red"}
           >
             <Card>
               <p className="mb-4">
