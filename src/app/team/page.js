@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Card, Badge, Modal, Button, Select, Input, DatePicker } from "antd";
+import { Card, Badge, Modal, Button, Select, Input, DatePicker, Table } from "antd";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 
@@ -9,7 +9,7 @@ export default function TeamPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const user = searchParams.get("user");
-
+  const [currentUser,setCurrentUser]=useState("")
   const [isModalOpen, setIsModalOpen] = useState(true);
   const [items, setItems] = useState([]); // Store stock items
   const [selectedItem, setSelectedItem] = useState(null);
@@ -17,8 +17,23 @@ export default function TeamPage() {
   const [batchFields, setBatchFields] = useState([]);
   const [srNo, setSrNo] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
-
+  const [selectedItemTeam, setSelectedItemTeam] = useState(""); // Track team of selected item
   const [teamName, setTeamName] = useState("New Entry");
+  const [tableData, setTableData] = useState([]); // Store batch data
+  const [isEditable,setIsEditable]=useState(true);
+
+  useEffect(() => {
+    if (user) {
+      let formattedUser = user;
+      
+      if (user === "teamblue") formattedUser = "Team Blue";
+      else if (user === "teamred") formattedUser = "Team Red";
+      setCurrentUser(formattedUser);
+    }
+  }, [user]);
+  
+  
+
 
   useEffect(() => {
     if (batchFields.length > 0) {
@@ -33,12 +48,14 @@ export default function TeamPage() {
   };
 
   const openModal = () => {
+   
     setSelectedItem(null); // Reset only the item selection
     setIsModalOpen(true); // Open modal
     setSrNo("");
     setCurrentStock("");
     setBatchFields([]);
   };
+ 
 
   const deleteBatchField = async (index, batchId) => {
     if (!batchId) {
@@ -107,6 +124,7 @@ export default function TeamPage() {
           body: JSON.stringify({
             itemId: selectedItem,
             batchFields: existingBatches,
+            team:currentUser,
           }),
         });
 
@@ -121,6 +139,7 @@ export default function TeamPage() {
           body: JSON.stringify({
             itemId: selectedItem,
             batchFields: newBatches,
+            team:currentUser,
           }),
         });
 
@@ -139,32 +158,64 @@ export default function TeamPage() {
   const handleCancel = () => setIsModalOpen(false);
 
   // Handle item selection
-  const handleItemChange = async (value) => {
-    setSelectedItem(value);
-    setIsEditMode(false); // Reset to default
+ const handleItemChange = async (value) => {
+  setSelectedItem(value);
+  setIsEditMode(false);
+  setIsEditable(false);
 
-    const selected = items.find((item) => item.id === value);
-    if (selected) {
-      setCurrentStock(selected.stock_qty);
-      setSrNo(selected.sr_no || "");
+  const selected = items.find((item) => item.id === value);
+  if (!selected) {
+    console.warn("⚠️ No matching item found!");
+    return;
+  }
 
-      try {
-        const response = await fetch(`/api/batchdata?itemId=${value}`);
-        const batchData = await response.json();
+  setCurrentStock(selected.stock_qty);
+  setSrNo(selected.sr_no || "");
 
-        if (response.ok) {
-          setBatchFields(batchData.length > 0 ? batchData : []);
-          setIsEditMode(batchData.length > 0); // Enable edit mode if data exists
-        } else {
-          console.error("❌ Error fetching batch data:", batchData.error);
-        }
-      } catch (error) {
-        console.error("⚠️ Network error fetching batch data:", error);
+  try {
+    // 🔹 Fetch the team handling this product from stock_data
+    const response = await fetch(`/api/stockdata?itemId=${value}`);
+    const stockData = await response.json();
+
+    const team = stockData.team || "New Entry";
+    setTeamName(team);
+
+    if (team === "New Entry" || team === currentUser) {
+      // ✅ If the product is free or assigned to the current team, allow editing
+      setIsEditable(true);
+
+      // 🔹 Assign the product to the team if it's a new entry
+      if (team === "New Entry") {
+        await fetch(`/api/stockdata`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId: value, team: currentUser }),
+        });
       }
     } else {
-      console.warn("⚠️ No matching item found!");
+      // ❌ If another team is handling the item, block editing
+      setIsEditable(false);
+      alert(`❌ This item is currently assigned to ${team}.`);
     }
-  };
+
+    // 🔹 Fetch batch data for this item
+    const batchResponse = await fetch(`/api/batchdata?itemId=${value}`);
+    const batchData = await batchResponse.json();
+    if (batchResponse.ok) {
+      setBatchFields(batchData.length > 0 ? batchData : []);
+      setIsEditMode(batchData.length > 0);
+    } else {
+      console.error("❌ Error fetching batch data:", batchData.error);
+    }
+  } catch (error) {
+    console.error("⚠️ Network error:", error);
+  }
+};
+
+  
+  
+  
+  
 
   // Calculate Total Batch Stock
   const totalBatchStock = batchFields.reduce(
@@ -174,6 +225,73 @@ export default function TeamPage() {
 
   // Calculate Remaining Stock
   const remainingStock = currentStock - totalBatchStock;
+
+
+
+  // Fetch batch data with item names
+  useEffect(() => {
+    fetch("/api/tabledata")
+      .then((res) => res.json())
+      .then((data) => {
+        setTableData(data);
+        console.log("Fetched Data:", tableData); // ✅ Log data before setting state
+      })
+      .catch((err) => console.error("Error fetching batch data:", err));
+  }, []);
+  
+
+
+  const columns = [
+    {
+      title: "Item Name",
+      dataIndex: "item_name",
+      key: "item_name",
+    },
+    {
+      title: "Lot/Batch",
+      dataIndex: "lot",
+      key: "lot",
+    },
+    {
+      title: "Stock",
+      dataIndex: "stock",
+      key: "stock",
+    },
+    {
+      title: "Expiry",
+      dataIndex: "expiry",
+      key: "expiry",
+      render: (date) => date ? dayjs(date).format("DD-MM-YYYY") : "N/A"
+    },
+    {
+      title: "Team",
+      dataIndex: "team",
+      key: "team",
+      render: (team) => (
+        <span style={{ color: team === "Team Red" ? "red" : team === "Team Blue" ? "blue" : "black" }}>
+          {team}
+        </span>
+      ),
+    },
+
+  ];
+
+  const expandedRowRender = (record) => {
+    const batchColumns = [
+      { title: "Lot", dataIndex: "lot", key: "lot" },
+      { title: "Expiry Date", dataIndex: "expiry", key: "expiry", render: (date) => date ? dayjs(date).format("YYYY-MM-DD") : "N/A" },
+      { title: "Stock", dataIndex: "stock", key: "stock" },
+      { title: "MRP", dataIndex: "mrp", key: "mrp" },
+      { title: "Team", dataIndex: "team", key: "team" },
+    ];
+  }
+    // return <Table columns={batchColumns} dataSource={record.batches} rowKey="id" pagination={false} />;}
+
+
+
+
+
+
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
@@ -187,18 +305,32 @@ export default function TeamPage() {
           onCancel={handleCancel}
           okText={isEditMode ? "Edit" : "Save"}
           width={800}
+          okButtonProps={{ disabled: !isEditable }}
         >
           <Badge.Ribbon
             text={teamName}
-            color={teamName === "teamblue" ? "Blue" : "Red"}
+            color={
+              teamName === "teamblue"
+                ? "blue"
+                : teamName === "New Entry"
+                ? "green"
+                : "red"
+            }
           >
             <Card>
               <p className="mb-4">
                 Hello! Welcome{" "}
-                {teamName.replace(/\b\w/g, (char) => char.toUpperCase())}.
+                {currentUser.replace(/\b\w/g, (char) => char.toUpperCase())}.
               </p>
 
               {/* 🔹 Top Section: Current Item Details */}
+              {!isEditable && (
+                <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-3 mb-4">
+                  Editing is only permitted for{" "}
+                  <strong>{teamName}</strong>. Please forward this to
+                  the respective team.
+                </div>
+              )}
               <div className="mb-4">
                 <label className="block font-medium mb-1">Select Item</label>
                 <Select
@@ -212,6 +344,7 @@ export default function TeamPage() {
                     label: item.item,
                     value: item.id,
                   }))}
+                  // disabled={!isEditable}
                 />
               </div>
 
@@ -269,26 +402,31 @@ export default function TeamPage() {
                     onChange={(e) =>
                       handleBatchChange(index, "lot", e.target.value)
                     }
+                    disabled={!isEditable}
                   />
                   <DatePicker
                     className="w-full"
                     placeholder="Select Date"
                     value={batch.expiry ? dayjs(batch.expiry) : null} // ✅ Use dayjs
                     onChange={(date) => {
-                      console.log("📅 Selected Date:", date);
+                      
                       handleBatchChange(
                         index,
                         "expiry",
                         date ? date.toISOString() : null
                       );
                     }}
+                    disabled={!isEditable}
                   />
                   <Input
                     placeholder="Enter Stock"
                     value={batch.stock}
                     onChange={(e) =>
                       handleBatchChange(index, "stock", e.target.value)
+                      
                     }
+                    disabled={!isEditable}
+
                   />
                   <div className="flex items-center gap-2">
                     <Input
@@ -297,12 +435,14 @@ export default function TeamPage() {
                       onChange={(e) =>
                         handleBatchChange(index, "mrp", e.target.value)
                       }
+                      disabled={!isEditable}
                     />
                     <Button
                       type="text"
                       danger
                       icon={<DeleteOutlined />}
                       onClick={() => deleteBatchField(index, batch.id)}
+                      disabled={!isEditable}
                     />
                   </div>
                 </div>
@@ -314,6 +454,7 @@ export default function TeamPage() {
                 className="w-full flex items-center justify-center"
                 icon={<PlusOutlined />}
                 onClick={addBatchField}
+                disabled={!isEditable}
               >
                 Add Batch
               </Button>
@@ -344,6 +485,15 @@ export default function TeamPage() {
           Add New
         </Button>
       </div>
+      {/* Expandable Table */}
+      <Table
+        columns={columns}
+        dataSource={tableData}
+        rowKey="id"
+        expandable={{ expandedRowRender }}
+        bordered
+      />
     </div>
+
   );
 }
