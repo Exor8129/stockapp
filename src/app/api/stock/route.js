@@ -35,3 +35,23 @@ export async function GET() {
     await prisma.$disconnect();
   }
 }
+
+export async function PUT(req) {
+  try {
+    const { itemId, team } = await req.json();
+
+    if (!itemId || !team) {
+      return NextResponse.json({ error: "Missing itemId or team" }, { status: 400 });
+    }
+
+    const updatedItem = await prisma.stock_data.update({
+      where: { id: parseInt(itemId) }, // ← itemId must match your primary key type
+      data: { team },
+    });
+
+    return NextResponse.json({ success: true, updatedItem }, { status: 200 });
+  } catch (error) {
+    console.error("PUT /api/stock error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}

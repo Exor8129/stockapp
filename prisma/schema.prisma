@@ -39,6 +39,7 @@ model stock_data {
   column4              String?
   id                   Int         @id @default(autoincrement())
   batchdata            batchdata[]
+  team    String?
 }
 
 model batchdata {
@@ -52,3 +53,8 @@ model batchdata {
   team       String     @default("team1") @db.VarChar(50)
   stock_data stock_data @relation(fields: [item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
+
+
+
+
+
